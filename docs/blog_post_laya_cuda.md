@@ -162,21 +162,28 @@ This lowers container VRAM from **4,810 MiB** down to **1,834 MiB** (**62% memor
 
 ---
 
-## 8. Deployment: Docker Compose & Pre-Built Image
+## 8. Deployment: Docker Compose & Pre-Built Images (CUDA & CPU)
 
-You don't need to build from source; a pre-built CUDA image is available on Docker Hub:
+You don't need to compile PyTorch or build from source; pre-built images are published on Docker Hub for both GPU and CPU:
 
 ```bash
+# GPU-accelerated (PyTorch CUDA 13.0, NVIDIA Container Toolkit)
 docker pull vinaybalamuru/laya:cuda
+
+# Lightweight CPU-only build (~371 MB compressed, zero GPU drivers needed)
+docker pull vinaybalamuru/laya:cpu
 ```
 
-### 1. Companion `.env` Configuration
+> **Official Docs:** For additional deployment options (including ModelScope offline baking and ARM64/Apple Silicon), consult the official documentation at [nandhakishorm.github.io/laya/docker/](https://nandhakishorm.github.io/laya/docker/).
 
-Create a `.env` file to manage configuration:
+### 1. Unified `.env` Configuration
+
+Both stacks share a single companion `.env` file, isolating host port bindings and credentials:
 
 ```env
-# Server networking
-LAYA_PORT=8111
+# Networking ports
+LAYA_PORT=8111          # CUDA Server Host Port
+LAYA_CPU_PORT=8112      # CPU Server Host Port
 LAYA_BIND_ADDRESS=0.0.0.0
 
 # Optional API key protection
@@ -190,13 +197,22 @@ LAYA_MAX_LOADED=1
 LAYA_MODELS=english
 LAYA_PRELOAD=1
 
+# CPU Stack configuration
+LAYA_CPU_THREADS=4
+LAYA_CPU_AMP=
+
 # Optional Hugging Face Token (avoids download rate limits)
 HF_TOKEN=hf_...
 ```
 
-### 2. `docker-compose.yml`
+### 2. Dual Docker Compose Stacks
 
+To prevent port and container collisions while sharing the downloaded weights cache, we provide two compose files:
+
+#### A. CUDA Stack (`docker-compose/docker-compose.yml`)
 ```yaml
+name: laya-cuda
+
 services:
   laya-serve:
     image: vinaybalamuru/laya:cuda
@@ -206,7 +222,7 @@ services:
     environment:
       LAYA_HOST: "0.0.0.0"
       LAYA_PORT: "${LAYA_PORT:-8111}"
-      LAYA_DEVICE: "${LAYA_DEVICE:-cuda}"
+      LAYA_DEVICE: "cuda"
       LAYA_CUDA_AMP: "${LAYA_CUDA_AMP:-fp16}"
       LAYA_MAX_LOADED: "${LAYA_MAX_LOADED:-1}"
       LAYA_MODELS: "${LAYA_MODELS:-english}"
@@ -230,82 +246,78 @@ volumes:
     name: laya_model-cache
 ```
 
-Start the daemon:
+#### B. CPU Stack (`docker-compose/docker-compose.cpu.yml`)
+```yaml
+name: laya-cpu
+
+services:
+  laya-serve:
+    image: vinaybalamuru/laya:cpu
+    command: ["laya-serve"]
+    ports:
+      - "${LAYA_BIND_ADDRESS:-0.0.0.0}:${LAYA_CPU_PORT:-8112}:${LAYA_CPU_PORT:-8112}"
+    environment:
+      LAYA_HOST: "0.0.0.0"
+      LAYA_PORT: "${LAYA_CPU_PORT:-8112}"
+      LAYA_DEVICE: "cpu"
+      LAYA_MAX_LOADED: "${LAYA_MAX_LOADED:-1}"
+      LAYA_MODELS: "${LAYA_MODELS:-english}"
+      LAYA_PRELOAD: "${LAYA_PRELOAD:-1}"
+      LAYA_API_KEY: "${LAYA_API_KEY:-}"
+      OMP_NUM_THREADS: "${LAYA_CPU_THREADS:-4}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+    volumes:
+      - model-cache:/home/laya/.cache/huggingface
+    restart: unless-stopped
+    init: true
+
+volumes:
+  model-cache:
+    name: laya_model-cache
+```
+
+Notice that both services mount the same volume: `laya_model-cache`. Checkpoint weights downloaded once are instantly shared between the CPU and GPU daemons with zero redundancy.
+
+Start either stack (or both side-by-side):
 ```bash
-docker compose up -d laya-serve
+# Start CUDA daemon on port 8111:
+docker compose --env-file docker-compose/.env -f docker-compose/docker-compose.yml up -d laya-serve
+
+# Start CPU daemon on port 8112:
+docker compose --env-file docker-compose/.env -f docker-compose/docker-compose.cpu.yml up -d laya-serve
 ```
 
 ---
 
-## 9. Live Benchmark Results
+## 9. Live Benchmark Comparison: CUDA vs. CPU vs. Cloud
 
-We benchmarked the live container running on an **NVIDIA GeForce RTX 2080 (8 GB)**:
+We benchmarked both local containers (on an **NVIDIA GeForce RTX 2080** and an **Intel CPU with 4 threads**) against remote cloud options over identical state-and-criteria queries:
 
 ```text
-========================================================================================
-                          LIVE BENCHMARK METRICS (RTX 2080)
-========================================================================================
- Test Case                                 Throughput     P50 Latency   Mean Latency
-────────────────────────────────────────────────────────────────────────────────────────
- Single Classification (3 Criteria)        74.8 req/sec   13.32 ms      13.37 ms
- Multi-Question Batch (3 Questions)        50.2 req/sec   19.65 ms      19.91 ms
- Native TypeSafe Jev (Cloud Published)     Network bound  236.00 ms     245.00 ms
- OpenRouter Meta-Router (delegated to LLM) Cloud bound    1,858.00 ms   2,154.00 ms
-────────────────────────────────────────────────────────────────────────────────────────
+========================================================================================================
+                                LIVE COMPARATIVE BENCHMARK METRICS
+========================================================================================================
+ Engine / Backend                   Test Case                    Throughput     P50 Latency   Mean Latency
+────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Laya CUDA (RTX 2080 GPU)           Single Classify (3 Criteria)  74.9 req/sec   13.23 ms      13.35 ms
+ Laya CUDA (RTX 2080 GPU)           Multi-Question (3 Questions)  56.0 req/sec   17.76 ms      17.87 ms
+────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Laya CPU (4 OpenMP Threads)        Single Classify (3 Criteria)   6.8 req/sec  146.54 ms     147.24 ms
+ Laya CPU (4 OpenMP Threads)        Multi-Question (3 Questions)   2.7 req/sec  372.16 ms     373.11 ms
+────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Native TypeSafe Jev (Cloud API)    Single Classify (Cloud)      Network bound  236.00 ms     245.00 ms
+ OpenRouter Jev Meta-Router (LLM)   Single Classify (Azure/OpenAI)Cloud bound 1,858.00 ms   2,154.00 ms
+========================================================================================================
 ```
 
-### Exercising the API with `curl`
+### Key Takeaways:
 
-```bash
-curl -s -X POST http://localhost:8111/v1/systemone \
-  -H "Authorization: Bearer my-secret-laya-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "state": "The user encountered an error 500 when saving account settings.",
-    "questions": {
-      "category": {
-        "type": "choice",
-        "instructions": "Classify the problem",
-        "criteria": {
-          "server_error": "500, crash, unhandled exception",
-          "user_error": "invalid form input, bad password",
-          "feature_request": "new functionality desired"
-        }
-      }
-    }
-  }' | jq .
-```
-
-### Response:
-```json
-{
-  "model": "laya-rl-agent",
-  "answers": {
-    "category": {
-      "type": "choice",
-      "choice": "server_error",
-      "probabilities": {
-        "server_error": 0.6516,
-        "user_error": 0.3231,
-        "feature_request": 0.0253
-      },
-      "confidence": 0.329,
-      "answer_confidence": 0.6516,
-      "action": {
-        "act_probability": 1.0
-      }
-    }
-  },
-  "usage": {
-    "input_tokens": 53,
-    "output_tokens": 0
-  },
-  "routing": {
-    "model": "english",
-    "device": "cuda"
-  }
-}
-```
+1. **Local CUDA is an Order of Magnitude Faster:**
+   At **13.23 ms P50**, Laya on a consumer GPU is **~17x faster** than native TypeSafe Jev over the cloud and **~140x faster** than routing via an LLM meta-router.
+2. **CPU-Only is Completely Practical for Modest Hardware:**
+   At **146.54 ms P50**, Laya on CPU alone is **faster than typical cloud network roundtrips** (236ms). If your application doesn't have an NVIDIA GPU or runs on a modest cloud VPS or developer laptop, the CPU image delivers calibrated decision routing without needing any specialized hardware.
+3. **Multi-Question Scaling:**
+   Evaluating 3 simultaneous hypothesis questions on CUDA takes only **17.76 ms** (a 4.5ms delta over single classification), showing how parallel option heads evaluate criteria concurrently in a single forward pass.
 
 ---
 
@@ -318,7 +330,11 @@ The future of AI architecture is not a monolithic model doing everything poorly;
 
 Huge props to **Nandha Kishor M** and the contributors behind the [official Laya repository](https://github.com/NandhaKishorM/laya) for open-sourcing a principled, non-autoregressive alternative to brute-force prompting, and to **TypeSafe** for pioneering the System 1 paradigm.
 
-To get started right away, pull the pre-built CUDA container:
+To get started right away, pull the pre-built containers:
 ```bash
+# For NVIDIA GPUs:
 docker pull vinaybalamuru/laya:cuda
+
+# For CPU-only servers:
+docker pull vinaybalamuru/laya:cpu
 ```

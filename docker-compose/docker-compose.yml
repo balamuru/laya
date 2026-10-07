@@ -1,3 +1,5 @@
+name: laya-cuda
+
 services:
   # One-shot / CLI inference service (runs quickstart request or custom command)
   laya:

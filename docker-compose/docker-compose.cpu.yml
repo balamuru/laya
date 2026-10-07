@@ -1,0 +1,46 @@
+name: laya-cpu
+
+services:
+  # One-shot / CLI inference service on CPU (runs quickstart request or custom command)
+  laya:
+    image: ${LAYA_CPU_IMAGE:-vinaybalamuru/laya:cpu}
+    environment:
+      LAYA_DEVICE: "cpu"
+      LAYA_MODEL: "${LAYA_MODEL:-auto}"
+      LAYA_REQUEST_FILE: "${LAYA_REQUEST_FILE:-/opt/laya/examples/request.json}"
+      LAYA_CPU_AMP: "${LAYA_CPU_AMP:-}"
+      OMP_NUM_THREADS: "${LAYA_CPU_THREADS:-4}"
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_TOKEN_FILE: "${HF_TOKEN_FILE:-}"
+    volumes:
+      - model-cache:/home/laya/.cache/huggingface
+    init: true
+
+  # Persistent HTTP REST API service on CPU (POST /v1/systemone, GET /health)
+  laya-serve:
+    image: ${LAYA_CPU_IMAGE:-vinaybalamuru/laya:cpu}
+    command: ["laya-serve"]
+    ports:
+      - "${LAYA_BIND_ADDRESS:-0.0.0.0}:${LAYA_CPU_PORT:-8112}:${LAYA_CPU_PORT:-8112}"
+    environment:
+      LAYA_HOST: "${LAYA_HOST:-0.0.0.0}"
+      LAYA_PORT: "${LAYA_CPU_PORT:-8112}"
+      LAYA_DEVICE: "cpu"
+      LAYA_CPU_AMP: "${LAYA_CPU_AMP:-}"
+      LAYA_MAX_LOADED: "${LAYA_MAX_LOADED:-1}"
+      LAYA_MODELS: "${LAYA_MODELS:-english}"
+      LAYA_PRELOAD: "${LAYA_PRELOAD:-0}"
+      LAYA_API_KEY: "${LAYA_API_KEY:-}"
+      OMP_NUM_THREADS: "${LAYA_CPU_THREADS:-4}"
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_TOKEN_FILE: "${HF_TOKEN_FILE:-}"
+    volumes:
+      - model-cache:/home/laya/.cache/huggingface
+    restart: unless-stopped
+    init: true
+
+volumes:
+  model-cache:
+    name: "${LAYA_CACHE_VOLUME:-laya_model-cache}"

@@ -70,6 +70,8 @@ docs/superpowers/
 # credentials - never commit
 .env
 .env.*
+!.env.example
+*.env
 *.pypirc
 .pypirc
 *.token

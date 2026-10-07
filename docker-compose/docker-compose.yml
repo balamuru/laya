@@ -1,0 +1,58 @@
+services:
+  # One-shot / CLI inference service (runs quickstart request or custom command)
+  laya:
+    image: vinaybalamuru/laya:cuda
+    environment:
+      LAYA_DEVICE: "${LAYA_DEVICE:-cuda}"
+      LAYA_MODEL: "${LAYA_MODEL:-auto}"
+      LAYA_REQUEST_FILE: "${LAYA_REQUEST_FILE:-/opt/laya/examples/request.json}"
+      LAYA_CUDA_AMP: "${LAYA_CUDA_AMP:-}"
+      OMP_NUM_THREADS: "${OMP_NUM_THREADS:-4}"
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_TOKEN_FILE: "${HF_TOKEN_FILE:-}"
+    volumes:
+      - model-cache:/home/laya/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${LAYA_GPU_ID:-0}"]
+              capabilities: [gpu]
+    init: true
+
+  # Persistent HTTP REST API service (POST /v1/systemone, GET /health)
+  laya-serve:
+    image: vinaybalamuru/laya:cuda
+    command: ["laya-serve"]
+    ports:
+      - "${LAYA_BIND_ADDRESS:-0.0.0.0}:${LAYA_PORT:-8000}:${LAYA_PORT:-8000}"
+    environment:
+      LAYA_HOST: "${LAYA_HOST:-0.0.0.0}"
+      LAYA_PORT: "${LAYA_PORT:-8000}"
+      LAYA_DEVICE: "${LAYA_DEVICE:-cuda}"
+      LAYA_CUDA_AMP: "${LAYA_CUDA_AMP:-fp16}"
+      LAYA_MAX_LOADED: "${LAYA_MAX_LOADED:-1}"
+      LAYA_MODELS: "${LAYA_MODELS:-english}"
+      LAYA_PRELOAD: "${LAYA_PRELOAD:-0}"
+      LAYA_API_KEY: "${LAYA_API_KEY:-}"
+      OMP_NUM_THREADS: "${OMP_NUM_THREADS:-4}"
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-0}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_TOKEN_FILE: "${HF_TOKEN_FILE:-}"
+    volumes:
+      - model-cache:/home/laya/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${LAYA_GPU_ID:-0}"]
+              capabilities: [gpu]
+    restart: unless-stopped
+    init: true
+
+volumes:
+  model-cache:
+    name: "${LAYA_CACHE_VOLUME:-laya_model-cache}"

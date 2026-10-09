@@ -289,9 +289,9 @@ docker compose --env-file docker-compose/.env -f docker-compose/docker-compose.c
 
 ---
 
-## 9. Live Benchmark Comparison: CUDA vs. CPU vs. Cloud
+## 9. Live Benchmark Comparison: CUDA vs. CPU vs. Native Jev vs. Cloud LLM
 
-We benchmarked both local containers (on an **NVIDIA GeForce RTX 2080** and an **Intel CPU with 4 threads**) against remote cloud options over identical state-and-criteria queries:
+We benchmarked local containers (on an **NVIDIA GeForce RTX 2080** and an **Intel CPU with 4 threads**) directly against **Native TypeSafe Jev** (`api.typesafe.ai`) and OpenRouter's meta-router over identical state-and-criteria queries:
 
 ```text
 ========================================================================================================
@@ -299,25 +299,29 @@ We benchmarked both local containers (on an **NVIDIA GeForce RTX 2080** and an *
 ========================================================================================================
  Engine / Backend                   Test Case                    Throughput     P50 Latency   Mean Latency
 ────────────────────────────────────────────────────────────────────────────────────────────────────────
- Laya CUDA (RTX 2080 GPU)           Single Classify (3 Criteria)  74.9 req/sec   13.23 ms      13.35 ms
- Laya CUDA (RTX 2080 GPU)           Multi-Question (3 Questions)  56.0 req/sec   17.76 ms      17.87 ms
+ Laya CUDA (RTX 2080 GPU)           Single Classify (3 Criteria)  76.1 req/sec   13.09 ms      13.15 ms
+ Laya CUDA (RTX 2080 GPU)           Multi-Question (3 Questions)  56.1 req/sec   17.04 ms      17.82 ms
 ────────────────────────────────────────────────────────────────────────────────────────────────────────
- Laya CPU (4 OpenMP Threads)        Single Classify (3 Criteria)   6.8 req/sec  146.54 ms     147.24 ms
- Laya CPU (4 OpenMP Threads)        Multi-Question (3 Questions)   2.7 req/sec  372.16 ms     373.11 ms
+ Laya CPU (4 OpenMP Threads)        Single Classify (3 Criteria)   7.0 req/sec  143.46 ms     143.57 ms
+ Laya CPU (4 OpenMP Threads)        Multi-Question (3 Questions)   2.8 req/sec  362.30 ms     362.92 ms
 ────────────────────────────────────────────────────────────────────────────────────────────────────────
- Native TypeSafe Jev (Cloud API)    Single Classify (Cloud)      Network bound  236.00 ms     245.00 ms
+ Native TypeSafe Jev (Cloud API)    Single Classify (3 Criteria)   5.0 req/sec  194.92 ms     199.16 ms
+ Native TypeSafe Jev (Cloud API)    Multi-Question (3 Questions)   4.8 req/sec  194.18 ms     209.70 ms
+────────────────────────────────────────────────────────────────────────────────────────────────────────
  OpenRouter Jev Meta-Router (LLM)   Single Classify (Azure/OpenAI)Cloud bound 1,858.00 ms   2,154.00 ms
 ========================================================================================================
 ```
 
 ### Key Takeaways:
 
-1. **Local CUDA is an Order of Magnitude Faster:**
-   At **13.23 ms P50**, Laya on a consumer GPU is **~17x faster** than native TypeSafe Jev over the cloud and **~140x faster** than routing via an LLM meta-router.
-2. **CPU-Only is Completely Practical for Modest Hardware:**
-   At **146.54 ms P50**, Laya on CPU alone is **faster than typical cloud network roundtrips** (236ms). If your application doesn't have an NVIDIA GPU or runs on a modest cloud VPS or developer laptop, the CPU image delivers calibrated decision routing without needing any specialized hardware.
-3. **Multi-Question Scaling:**
-   Evaluating 3 simultaneous hypothesis questions on CUDA takes only **17.76 ms** (a 4.5ms delta over single classification), showing how parallel option heads evaluate criteria concurrently in a single forward pass.
+1. **Local CUDA Delivers True Real-Time Performance:**
+   At **13.09 ms P50**, Laya on a consumer GPU is **~15x faster** than native TypeSafe Jev over the cloud and **~140x faster** than an LLM meta-router. Zero network transit, zero TLS handshake, and zero cloud queueing.
+2. **Native TypeSafe Jev is ~195ms, Not Seconds:**
+   Testing directly with a TypeSafe API key against `api.typesafe.ai` confirms native Jev completes in **~195 ms P50**. The ~1.85-second latency observed on OpenRouter was due to OpenRouter treating Jev as a meta-router that routed downstream to Azure OpenAI (`openai/gpt-6-luna`), which ran an autoregressive text-generation loop.
+3. **Local CPU Outperforms Cloud WAN Roundtrips for Single Inferences:**
+   At **143.46 ms P50**, running Laya on an ordinary 4-thread CPU beats native cloud Jev (**194.92 ms**) for single decisions simply because it eliminates WAN network hops. On modest hardware without a GPU, local CPU execution is completely practical for interactive systems.
+4. **Near-Zero Delta for Multi-Question Batching on GPU:**
+   Evaluating 3 simultaneous hypothesis questions on CUDA takes **17.04 ms** (only a 3.95ms delta over single classification), showing how parallel option heads evaluate criteria concurrently in a single forward pass.
 
 ---
 

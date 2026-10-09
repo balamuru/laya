@@ -1,0 +1,14 @@
+{
+  "state": "The user encountered an error 500 when saving account settings.",
+  "questions": {
+    "category": {
+      "type": "choice",
+      "instructions": "Classify the problem",
+      "criteria": {
+        "server_error": "500, crash, unhandled exception",
+        "user_error": "invalid form input, bad password",
+        "feature_request": "new functionality desired"
+      }
+    }
+  }
+}
